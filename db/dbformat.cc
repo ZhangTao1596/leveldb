@@ -12,15 +12,22 @@
 
 namespace leveldb {
 
-static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
-  assert(seq <= kMaxSequenceNumber);
+static Status PackSequenceAndType(uint64_t seq, ValueType t, uint64_t* value) {
+  // assert(seq <= kMaxSequenceNumber);
+  if (kMaxSequenceNumber < seq)
+    return Status().InvalidArgument("seq", "exceed limit");
   assert(t <= kValueTypeForSeek);
-  return (seq << 8) | t;
+  *value = (seq << 8) | t;
+  return Status::OK();
 }
 
-void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
+Status AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
-  PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+  uint64_t value = 0;
+  Status status = PackSequenceAndType(key.sequence, key.type, &value);
+  if (!status.ok()) return status;
+  PutFixed64(result, value);
+  return Status::OK();
 }
 
 std::string ParsedInternalKey::DebugString() const {
@@ -73,8 +80,9 @@ void InternalKeyComparator::FindShortestSeparator(std::string* start,
       user_comparator_->Compare(user_start, tmp) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+    uint64_t value = 0;
+    PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek, &value);
+    PutFixed64(&tmp, value);
     assert(this->Compare(*start, tmp) < 0);
     assert(this->Compare(tmp, limit) < 0);
     start->swap(tmp);
@@ -89,8 +97,9 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
       user_comparator_->Compare(user_key, tmp) < 0) {
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
+    uint64_t value = 0;
+    PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek, &value);
+    PutFixed64(&tmp, value);
     assert(this->Compare(*key, tmp) < 0);
     key->swap(tmp);
   }
@@ -128,9 +137,34 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   kstart_ = dst;
   std::memcpy(dst, user_key.data(), usize);
   dst += usize;
-  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
+  uint64_t value = 0;
+  PackSequenceAndType(s, kValueTypeForSeek, &value);
+  EncodeFixed64(dst, value);
   dst += 8;
   end_ = dst;
+}
+
+Status LookupKey::SetValue(const Slice& user_key, SequenceNumber s) {
+  size_t usize = user_key.size();
+  size_t needed = usize + 13;  // A conservative estimate
+  char* dst;
+  if (needed <= sizeof(space_)) {
+    dst = space_;
+  } else {
+    dst = new char[needed];
+  }
+  start_ = dst;
+  dst = EncodeVarint32(dst, usize + 8);
+  kstart_ = dst;
+  std::memcpy(dst, user_key.data(), usize);
+  dst += usize;
+  uint64_t value = 0;
+  Status status = PackSequenceAndType(s, kValueTypeForSeek, &value);
+  if (!status.ok()) return status;
+  EncodeFixed64(dst, value);
+  dst += 8;
+  end_ = dst;
+  return Status::OK();
 }
 
 }  // namespace leveldb

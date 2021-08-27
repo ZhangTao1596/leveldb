@@ -14,6 +14,7 @@
 #include "leveldb/filter_policy.h"
 #include "leveldb/slice.h"
 #include "leveldb/table_builder.h"
+
 #include "util/coding.h"
 #include "util/logging.h"
 
@@ -83,7 +84,7 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
 }
 
 // Append the serialization of "key" to *result.
-void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
+Status AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
@@ -185,12 +186,15 @@ class LookupKey {
  public:
   // Initialize *this for looking up user_key at a snapshot with
   // the specified sequence number.
+  LookupKey() {}
   LookupKey(const Slice& user_key, SequenceNumber sequence);
 
   LookupKey(const LookupKey&) = delete;
   LookupKey& operator=(const LookupKey&) = delete;
 
   ~LookupKey();
+
+  Status SetValue(const Slice& user_key, SequenceNumber sequence);
 
   // Return a key suitable for lookup in a MemTable.
   Slice memtable_key() const { return Slice(start_, end_ - start_); }

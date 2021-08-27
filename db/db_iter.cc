@@ -7,8 +7,10 @@
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
+
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+
 #include "port/port.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -279,8 +281,9 @@ void DBIter::Seek(const Slice& target) {
   direction_ = kForward;
   ClearSavedValue();
   saved_key_.clear();
-  AppendInternalKey(&saved_key_,
-                    ParsedInternalKey(target, sequence_, kValueTypeForSeek));
+  status_ = AppendInternalKey(
+      &saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
+  if (!status_.ok()) return;
   iter_->Seek(saved_key_);
   if (iter_->Valid()) {
     FindNextUserEntry(false, &saved_key_ /* temporary storage */);
